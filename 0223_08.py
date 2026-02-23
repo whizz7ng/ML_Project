@@ -27,6 +27,8 @@ def preprocess(x, y, training=False):
     x = tf.keras.applications.efficientnet.preprocess_input(x * 255.0)
     if training:
         x = data_augmentation(x, training=True)
+    # Label Smoothing을 위해 one-hot 변환 (CategoricalCrossentropy 사용)
+    y = tf.one_hot(tf.cast(tf.squeeze(y, axis=-1), tf.int32), 10)
     return x, y
 
 train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
@@ -61,7 +63,7 @@ def build_efficientnet_model(trainable_base=False):
     x = layers.Dense(512)(x)
     x = layers.BatchNormalization()(x)
     x = layers.Activation('elu')(x)
-    x = layers.Dropout(0.4)(x)
+    x = layers.Dropout(0.5)(x)  # 0.4 -> 0.5 (과적합 완화)
     outputs = layers.Dense(10, activation='softmax')(x)
 
     return models.Model(inputs, outputs)
@@ -96,7 +98,7 @@ log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "_ef
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-    loss='sparse_categorical_crossentropy',
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
     metrics=['accuracy']
 )
 
@@ -136,7 +138,7 @@ log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "_ef
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-    loss='sparse_categorical_crossentropy',
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
     metrics=['accuracy']
 )
 
@@ -193,22 +195,3 @@ elif gap < 0:
     print("진단: 언더피팅. 모델 용량을 늘리거나 에포크를 더 주세요.")
 else:
     print(f"진단: 안정적인 학습 (격차: {gap:.4f}). 목표 95% 달성 여부를 확인하세요.")
-    
-    
-'''
-Pretrained EfficientNetB3 Fine-tuning을 적용하겠습니다.
-
-① 이미지 크기 32→96 업스케일 (EfficientNetB3 최소 입력 크기 충족)
-② 모델을 EfficientNetB3로 교체 (2단계 학습: 헤드만 학습 → 전체 Fine-tuning)
-③ lr을 Fine-tuning에 맞게 낮춤 (1e-4)파일 생성됨
-
-
-① 이미지 업스케일 (32→96)
-EfficientNetB3는 작은 이미지에서 특징을 제대로 못 뽑기 때문에 tf.image.resize로 96x96으로 키웁니다.
-② 전처리 함수 변경
-EfficientNet 전용 preprocess_input을 적용해 픽셀값을 모델이 기대하는 범위로 변환합니다.
-③ 2단계 학습 전략
-    1단계 (10 에포크): base를 동결하고 Classifier Head만 학습 → 가중치 초기화
-    2단계 (30 에포크): base를 해동하고 전체를 낮은 lr(1e-4)로 Fine-tuning → 성능 극대화
-2단계에서 lr을 낮게 쓰는 이유는 ImageNet 가중치가 이미 잘 학습되어 있어서, 높은 lr로 학습하면 오히려 망가지기 때문입니다.
-'''    
